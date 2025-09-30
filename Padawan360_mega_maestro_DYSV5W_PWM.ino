@@ -4,6 +4,11 @@
 // on Tx3 on a Mega or software serial on Tx11
 // Please credit Dan Kraus for the original hard work on Padawan 360
 // This sketch is to beta test the DY-SV5W audio player instead of sparkfun mp3
+
+// Hub Drive Motors with individual PWM speed controllers
+// This script allows selection between standard Sabertooth control of brushed motors for the foot drives,
+// or the use of individual motor drivers (e.g. Flipsky FSESC6.7) with hub motors.
+
 // =======================================================================================
 // /////////////////////////Padawan360 Body Code - Mega I2C v2.0 ////////////////////////////////////
 // =======================================================================================
@@ -41,15 +46,29 @@
 
 // ************************** Options, Configurations, and Settings ***********************************
 
+#define FOOT_CONTROLLER 1  //0 = Sabertooth Serial or 1 =individual ESC for PWM (HUB) motors
+// PWM Hub Motor Mode settings...
+#if FOOT_CONTROLLER == 1
+#define leftFootPin 44    //connect this pin to motor controller for left foot (R/C mode)
+#define rightFootPin 45   //connect this pin to motor controller for right foot (R/C mode)
+#define leftDirection 1   //change this if left motor is spinning the wrong way
+#define rightDirection 1  //change this if right motor is spinning the wrong way
+int YDist = 0;            // Initial Drive Stick Value.
+int XDist = 0;            // Initial Drive Stick Value.
+int leftFoot = 90;        // Initial servo signal for motor speed (0 = full reverse, 90 = stop, 180 = full forward)
+int rightFoot = 90;       // Initial servo signal for motor speed (0 = full reverse, 90 = stop, 180 = full forward)
+#endif
 
 // SPEED AND TURN SPEEDS
-//set these 3 to whatever speeds work for you. 0-stop, 127-full speed.
-const byte DRIVESPEED1 = 60;
-// Recommend beginner: 50 to 75, experienced: 100 to 127, I like 100.
+//  For PWM Hub motors speeds are recommended as 30, 38 and 45.
+//  ***** DO NOT USE GO ABOVE 60 FOR PWM CONTROL EXCEPT IN SETUP *****
+//  For Sabertooth speeds are recommended as 50, 100 and 127
+const byte DRIVESPEED1 = 30;
+// set these 3 to whatever speeds work for you. 0-stop, 127-full speed.
 // These may vary based on your drive system and power system
-const byte DRIVESPEED2 = 100;
+const byte DRIVESPEED2 = 38;
 //Set to 0 if you only want 2 speeds.
-const byte DRIVESPEED3 = 127;
+const byte DRIVESPEED3 = 45;
 
 // Default drive speed at startup
 byte drivespeed = DRIVESPEED1;
@@ -57,7 +76,7 @@ byte drivespeed = DRIVESPEED1;
 // the higher this number the faster the droid will spin in place, lower - easier to control.
 // Recommend beginner: 40 to 50, experienced: 50 $ up, I like 70
 // This may vary based on your drive system and power system
-const byte TURNSPEED = 50;
+const byte TURNSPEED = 40;
 
 // Set isLeftStickDrive to true for driving  with the left stick
 // Set isLeftStickDrive to false for driving with the right stick (legacy and original configuration)
@@ -66,12 +85,13 @@ boolean isLeftStickDrive = true;
 // If using a speed controller for the dome, sets the top speed. You'll want to vary it potenitally
 // depending on your motor. My Pittman is really fast so I dial this down a ways from top speed.
 // Use a number up to 127 for serial
-const byte DOMESPEED = 80;
-
+const byte DOMESPEED = 127;
+unsigned long RampingMillis = 0;  //  Label for a timer to allow correct ramping while in the Deadzone
+int RampingDeadzoneDelay = 200;   //  milliseconds in the DriveDeadzone before switching the speed to 0.  Recommend about 200
 
 // Ramping- the lower this number the longer R2 will take to speedup or slow down,
 // change this by incriments of 1
-const byte RAMPING = 5;
+const byte RAMPING = 2;
 
 // Compensation is for deadband/deadzone checking. There's a little play in the neutral zone
 // which gets a reading of a value of something other than 0 when you're not moving the stick.
@@ -82,7 +102,7 @@ const byte RAMPING = 5;
 // use the lowest number with no drift
 // DOMEDEADZONERANGE for the left stick, DRIVEDEADZONERANGE for the right stick
 const byte DOMEDEADZONERANGE = 20;
-const byte DRIVEDEADZONERANGE = 20;
+const byte DRIVEDEADZONERANGE = 20;  // Suggested 4-8 for Sabertooth, 15-25 for PWM Hubs
 
 // Set the baude rate for the Sabertooth motor controller (feet)
 // 9600 is the default baud rate for Sabertooth packet serial.
@@ -115,15 +135,20 @@ int turnDirection = 20;
 #include <Wire.h>
 #include <XBOXRECV.h>
 
-#include <PololuMaestro.h> // added the Maestro libray
+#include <Servo.h>
+#include <Adafruit_PWMServoDriver.h>
+
+#include <PololuMaestro.h>  // added the Maestro libray
 //#include <SoftwareSerial.h>
-SoftwareSerial maestroSerial(10, 11); //tx pin 11
+SoftwareSerial maestroSerial(10, 11);  //tx pin 11
 
 //MiniMaestro maestro(Serial3); //hardware serial
-MiniMaestro maestrosserial(maestroSerial); //software serial
+MiniMaestro maestrosserial(maestroSerial);  //software serial
 
 /////////////////////////////////////////////////////////////////
+#if FOOT_CONTROLLER == 0
 Sabertooth Sabertooth2x(128, Serial1);
+#endif
 Sabertooth Syren10(128, Serial2);
 
 // Satisfy IDE, which only needs to see the include statment in the ino.
@@ -145,8 +170,14 @@ byte automateAction = 0;
 
 int driveThrottle = 0;
 int throttleStickValue = 0;
+#if FOOT_CONTROLLER == 1
+int throttleStickValueraw = 0;
+#endif
 int domeThrottle = 0;
 int turnThrottle = 0;
+#if FOOT_CONTROLLER == 1
+int turnThrottleraw = 0;
+#endif
 
 
 boolean firstLoadOnConnect = false;
@@ -170,9 +201,16 @@ DY::Player player;
 USB Usb;
 XBOXRECV Xbox(&Usb);
 
+#if FOOT_CONTROLLER == 1
+Servo leftFootSignal;   // Assign PWM signal for left foot drive ECS
+Servo rightFootSignal;  // Assign PWM signal for right foot drive ECS
+#endif
+
 void setup() {
 
+#if FOOT_CONTROLLER == 0
   Serial1.begin(SABERTOOTHBAUDRATE);
+#endif
   Serial2.begin(DOMEBAUDRATE);
   //Serial3.begin(9600); //start serial3 for the body Maestro
   maestroSerial.begin(9600);
@@ -183,15 +221,20 @@ void setup() {
   Syren10.autobaud();
 #endif
 
+#if FOOT_CONTROLLER == 0
   Sabertooth2x.autobaud();
   // The Sabertooth won't act on mixed mode packet serial commands until
   // it has received power levels for BOTH throttle and turning, since it
   // mixes the two together to get diff-drive power levels for both motors.
   Sabertooth2x.drive(0);
   Sabertooth2x.turn(0);
-
-
   Sabertooth2x.setTimeout(950);
+#elif FOOT_CONTROLLER == 1
+  leftFootSignal.attach(leftFootPin);
+  rightFootSignal.attach(rightFootPin);
+  stopFeet();
+#endif
+
   Syren10.setTimeout(950);
 
   pinMode(EXTINGUISHERPIN, OUTPUT);
@@ -201,7 +244,7 @@ void setup() {
   //mp3Trigger.setVolume(vol);
 
   player.begin();
-  player.setVolume(vol); // starting Volume
+  player.setVolume(vol);  // starting Volume
 
   if (isLeftStickDrive) {
     throttleAxis = LeftHatY;
@@ -226,10 +269,12 @@ void setup() {
 
   //  Serial.begin(9600);
   // Wait for serial port to connect - used on Leonardo, Teensy and other boards with built-in USB CDC serial connection
-  while (!Serial);
+  while (!Serial)
+    ;
   if (Usb.Init() == -1) {
     //Serial.print(F("\r\nOSC did not start"));
-    while (1); //halt
+    while (1)
+      ;  //halt
   }
   // Serial.print(F("\r\nXbox Wireless Receiver Library Started"));
 }
@@ -241,10 +286,26 @@ void loop() {
   // set all movement to 0 so if we lose connection we don't have a runaway droid!
   // a restraining bolt and jawa droid caller won't save us here!
   if (!Xbox.XboxReceiverConnected || !Xbox.Xbox360Connected[0]) {
+
+#if FOOT_CONTROLLER == 0
     Sabertooth2x.drive(0);
     Sabertooth2x.turn(0);
+#elif FOOT_CONTROLLER == 1
+    stopFeet();
+#endif
+
     Syren10.motor(1, 0);
+    isDriveEnabled = false;
     firstLoadOnConnect = false;
+
+    // If controller is disconnected, but was in automation mode, then droid will continue
+    // to play random sounds and dome movements
+    // if (isInAutomationMode) {
+    //   triggerAutomation();
+    // }
+    // if (!manuallyDisabledController) {
+    // }
+
     return;
   }
 
@@ -268,13 +329,13 @@ void loop() {
       isDriveEnabled = false;
       Xbox.setLedMode(ROTATING, 0);
       player.playSpecified(53);
-     // mp3Trigger.play(53);
-      Serial.println ("Start pressed");
+      // mp3Trigger.play(53);
+      Serial.println("Start pressed");
     } else {
       isDriveEnabled = true;
       //mp3Trigger.play(52);
       player.playSpecified(52);
-      Serial.println ("Start pressed");
+      Serial.println("Start pressed");
       // //When the drive is enabled, set our LED accordingly to indicate speed
       if (drivespeed == DRIVESPEED1) {
         Xbox.setLedOn(LED1, 0);
@@ -293,12 +354,12 @@ void loop() {
       automateAction = 0;
       //mp3Trigger.play(53);
       player.playSpecified(53);
-      Serial.println ("Back button pressed");
+      Serial.println("Back button pressed");
     } else {
       isInAutomationMode = true;
       //mp3Trigger.play(52);
       player.playSpecified(52);
-      Serial.println ("Back button pressed");
+      Serial.println("Back button pressed");
     }
   }
 
@@ -311,7 +372,7 @@ void loop() {
       automateAction = random(1, 5);
 
       if (automateAction > 1) {
-       // mp3Trigger.play(random(32, 52));
+        // mp3Trigger.play(random(32, 52));
         player.playSpecified(random(32, 52));
       }
       if (automateAction < 4) {
@@ -348,7 +409,7 @@ void loop() {
     if (Xbox.getButtonPress(R1, 0)) {
       if (vol > 0) {
         vol--;
-       // mp3Trigger.setVolume(vol);
+        // mp3Trigger.setVolume(vol);
         player.setVolume(vol);
       }
     }
@@ -358,9 +419,8 @@ void loop() {
     if (Xbox.getButtonPress(R1, 0)) {
       if (vol < 30) {
         vol++;
-      //  mp3Trigger.setVolume(vol);
-       player.setVolume(vol);
-      
+        //  mp3Trigger.setVolume(vol);
+        player.setVolume(vol);
       }
     }
   }
@@ -383,27 +443,23 @@ void loop() {
   if (Xbox.getButtonPress(R2, 0)) {
     if (Xbox.getButtonPress(UP, 0)) {
       maestrosserial.restartScript(0);
-
     }
   }
 
   if (Xbox.getButtonPress(R2, 0)) {
     if (Xbox.getButtonPress(RIGHT, 0)) {
       maestrosserial.restartScript(1);
-
     }
   }
   if (Xbox.getButtonPress(R2, 0)) {
     if (Xbox.getButtonPress(DOWN, 0)) {
       maestrosserial.restartScript(2);
-
     }
   }
 
   if (Xbox.getButtonPress(R2, 0)) {
     if (Xbox.getButtonPress(LEFT, 0)) {
       maestrosserial.restartScript(3);
-
     }
   }
   if (Xbox.getButtonPress(L2, 0)) {
@@ -415,7 +471,7 @@ void loop() {
   if (Xbox.getButtonPress(L2, 0)) {
     if (Xbox.getButtonPress(RIGHT, 0)) {
       maestrosserial.restartScript(5);
-     // mp3Trigger.play(3);
+      // mp3Trigger.play(3);
       player.playSpecified(3);
     }
   }
@@ -468,8 +524,8 @@ void loop() {
       //logic lights, random
       triggerI2C(10, 0);
     } else {
-     // mp3Trigger.play(random(13, 17));
-      
+      // mp3Trigger.play(random(13, 17));
+
       player.playSpecified(random(13, 17));
       //logic lights, random
       triggerI2C(10, 0);
@@ -497,13 +553,13 @@ void loop() {
       triggerI2C(26, 3);
       triggerI2C(27, 3);
     } else if (Xbox.getButtonPress(R1, 0)) {
-     // mp3Trigger.play(11);
+      // mp3Trigger.play(11);
       player.playSpecified(11);
       //logic lights, alarm2Display
       triggerI2C(10, 11);
     } else {
-      
-     //mp3Trigger.play(random(17, 25));
+
+      //mp3Trigger.play(random(17, 25));
       player.playSpecified(random(17, 25));
       //logic lights, random
       triggerI2C(10, 0);
@@ -533,7 +589,7 @@ void loop() {
       triggerI2C(27, 10);
     } else {
       //mp3Trigger.play(random(32, 52));
-     player.playSpecified(random(32, 52));
+      player.playSpecified(random(32, 52));
       //logic lights, random
       triggerI2C(10, 0);
     }
@@ -544,19 +600,19 @@ void loop() {
     // leia message L1+X
     if (Xbox.getButtonPress(L1, 0)) {
       //mp3Trigger.play(5);
-       player.playSpecified(5);
+      player.playSpecified(5);
       //logic lights, leia message
       triggerI2C(10, 5);
       // Front HPEvent 1 - HoloMessage - I2C -leia message
       triggerI2C(25, 9);
     } else if (Xbox.getButtonPress(L2, 0)) {
       //mp3Trigger.play(4);
-       player.playSpecified(4);
+      player.playSpecified(4);
       //logic lights
       triggerI2C(10, 4);
     } else if (Xbox.getButtonPress(R1, 0)) {
       //mp3Trigger.play(12);
-       player.playSpecified(12);
+      player.playSpecified(12);
       //logic lights, random
       triggerI2C(10, 0);
     } else {
@@ -569,7 +625,7 @@ void loop() {
 
   // turn hp light on & off with Right Analog Stick Press (R3) for left stick drive mode
   // turn hp light on & off with Left Analog Stick Press (L3) for right stick drive mode
-  if (Xbox.getButtonClick(hpLightToggleButton, 0))  {
+  if (Xbox.getButtonClick(hpLightToggleButton, 0)) {
     // if hp light is on, turn it off
     if (isHPOn) {
       isHPOn = false;
@@ -595,8 +651,8 @@ void loop() {
       //change to medium speed and play sound 3-tone
       drivespeed = DRIVESPEED2;
       Xbox.setLedOn(LED2, 0);
-     // mp3Trigger.play(53);
-       player.playSpecified(53);
+      // mp3Trigger.play(53);
+      player.playSpecified(53);
       triggerI2C(10, 22);
     } else if (drivespeed == DRIVESPEED2 && (DRIVESPEED3 != 0)) {
       //change to high speed and play sound scream
@@ -618,23 +674,34 @@ void loop() {
 
 
 
-  // FOOT DRIVES
-  // Xbox 360 analog stick values are signed 16 bit integer value
+// FOOT DRIVES
+// Xbox 360 analog stick values are signed 16 bit integer value
+#if FOOT_CONTROLLER == 0
   // Sabertooth runs at 8 bit signed. -127 to 127 for speed (full speed reverse and  full speed forward)
   // Map the 360 stick values to our min/max current drive speed
   throttleStickValue = (map(Xbox.getAnalogHat(throttleAxis, 0), -32768, 32767, -drivespeed, drivespeed));
-  if (throttleStickValue > -DRIVEDEADZONERANGE && throttleStickValue < DRIVEDEADZONERANGE) {
+
+  if (throttleStickValue < -DRIVEDEADZONERANGE || throttleStickValue > DRIVEDEADZONERANGE) {
+    RampingMillis = millis();
+  }
+
+  if (throttleStickValue > -DRIVEDEADZONERANGE && throttleStickValue < DRIVEDEADZONERANGE && (millis() - RampingMillis > RampingDeadzoneDelay)) {
     // stick is in dead zone - don't drive
     driveThrottle = 0;
+    stopFeet();
   } else {
+    if (isInAutomationMode) {  // Turn off automation if using the drive motors
+      isInAutomationMode = false;
+      automateAction = 0;
+    }
     if (driveThrottle < throttleStickValue) {
-      if (throttleStickValue - driveThrottle < (RAMPING + 1) ) {
+      if (throttleStickValue - driveThrottle > (RAMPING)) {
         driveThrottle += RAMPING;
       } else {
         driveThrottle = throttleStickValue;
       }
     } else if (driveThrottle > throttleStickValue) {
-      if (driveThrottle - throttleStickValue < (RAMPING + 1) ) {
+      if (driveThrottle - throttleStickValue > (RAMPING)) {
         driveThrottle -= RAMPING;
       } else {
         driveThrottle = throttleStickValue;
@@ -656,6 +723,28 @@ void loop() {
     Sabertooth2x.turn(-turnThrottle);
     Sabertooth2x.drive(driveThrottle);
   }
+  #elif FOOT_CONTROLLER == 1
+  //Experimental Hub Drive Code. Use at your own risk and test operation fully before going out in public.
+  throttleStickValueraw = Xbox.getAnalogHat(throttleAxis, 0);
+  turnThrottleraw = Xbox.getAnalogHat(turnAxis, 0);
+
+  if (isDriveEnabled) {
+
+    mixHubDrive(turnThrottleraw, throttleStickValueraw, drivespeed);  // Call function to gett values for leftFoot and rightFoot
+
+    if ((isInAutomationMode) && ((leftFoot != 90) || (rightFoot != 90))) {  // Turn off automation if using the drive motors
+      isInAutomationMode = false;
+      automateAction = 0;
+    }
+
+    leftFootSignal.write(leftFoot);
+    rightFootSignal.write(rightFoot);
+
+    // }
+  } else {
+    stopFeet();
+  }
+#endif
 
   // DOME DRIVE!
   domeThrottle = (map(Xbox.getAnalogHat(domeAxis, 0), -32768, 32767, DOMESPEED, -DOMESPEED));
@@ -665,10 +754,89 @@ void loop() {
   }
 
   Syren10.motor(1, domeThrottle);
-} // END loop()
+}  // END loop()
 
 void triggerI2C(byte deviceID, byte eventID) {
   Wire.beginTransmission(deviceID);
   Wire.write(eventID);
   Wire.endTransmission();
 }
+
+void stopFeet() {
+#if FOOT_CONTROLLER == 0
+  Sabertooth2x.drive(0);
+  Sabertooth2x.turn(0);
+#elif FOOT_CONTROLLER == 1
+  leftFootSignal.write(90);
+  rightFootSignal.write(90);
+#endif
+}
+
+// =======================================================================================
+// //////////////////////////Mixing Function for R/C Mode////////////////////////////////
+// =======================================================================================
+// Inspired by KnightShade's SHADOW code with contributions for PWM Motor Controllers by JoyMonkey/Paul Murphy and Brad/BHD
+#if FOOT_CONTROLLER == 1
+void mixHubDrive(int stickX, int stickY, byte maxDriveSpeed) {
+  // 180,180 = both feet full speed forward.
+  // 000,000 = both feet full speed reverse.
+  // 180,000 = left foot full forward, right foot full reverse (spin droid clockwise)
+  // 000,180 = left foot full reverse, right foot full forward (spin droid counter-clockwise)
+  // 090,090 = no movement
+  //  Ramping and Speed mode applied on the droid.
+
+  if (stickX <= (-DRIVEDEADZONERANGE * 258) || stickX >= (DRIVEDEADZONERANGE * 258) || stickY <= (-DRIVEDEADZONERANGE * 258) || stickY >= (DRIVEDEADZONERANGE * 258)) {
+    RampingMillis = millis();
+  }
+
+  if (stickX <= (-DRIVEDEADZONERANGE * 258) || stickX >= (DRIVEDEADZONERANGE * 258) || stickY <= (-DRIVEDEADZONERANGE * 258) || stickY >= (DRIVEDEADZONERANGE * 258) || (millis() - RampingMillis < RampingDeadzoneDelay)) {
+    //  if movement outside deadzone then map stick value to  maxDriveSpeed
+    //  Map to easy grid -100 to 100 in both axis, including deadzones.
+    int Y_Stick_Normalised = 0;
+
+    Y_Stick_Normalised = (map(stickY, -32768, 32767, -100, 100));  //  Map the up-down direction stick value to Drive speed
+
+    if (YDist < Y_Stick_Normalised) {
+      if (Y_Stick_Normalised - YDist > (RAMPING)) {
+        YDist += RAMPING;
+      } else {
+        YDist = Y_Stick_Normalised;
+      }
+    } else if (YDist > Y_Stick_Normalised) {
+      if (YDist - Y_Stick_Normalised > (RAMPING)) {
+        YDist -= RAMPING;
+      } else {
+        YDist = Y_Stick_Normalised;
+      }
+    }
+
+    XDist = (map(stickX, -32768, 32767, -100, 100));  //  Map the left-right direction stick value to Turn speed
+
+
+    // Simple mixing of stick spped and turn values to give left and right values
+    float RightSpeed = (YDist - (XDist * (TURNSPEED / 100)));
+    float LeftSpeed = (YDist + (XDist * (TURNSPEED / 100)));
+
+    int maxServoForward = map(maxDriveSpeed, 0, 127, 90, 180);  //drivespeed was defined as 0 to 127 for Sabertooth serial, now we want something in a servo range (90 to 180)
+    int maxServoReverse = map(maxDriveSpeed, 0, 127, 90, 0);    //drivespeed was defined as 0 to 127 for Sabertooth serial, now we want something in a servo range (90 to 0)
+
+#if leftDirection == 0
+    leftFoot = map(LeftSpeed, -100, 100, maxServoForward, maxServoReverse);
+#else
+    leftFoot = map(LeftSpeed, -100, 100, maxServoReverse, maxServoForward);
+#endif
+
+#if rightDirection == 0
+    rightFoot = map(RightSpeed, -100, 100, maxServoForward, maxServoReverse);
+#else
+    rightFoot = map(RightSpeed, -100, 100, maxServoReverse, maxServoForward);
+#endif
+  } else {
+    if (millis() - RampingMillis > RampingDeadzoneDelay) {
+      //  if stick positions have been in dead zone for >RampingDeadzoneDelay set foot speed to 90 i.e. stopped
+      leftFoot = 90;
+      rightFoot = 90;
+    }
+  }
+}
+#endif
