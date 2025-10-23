@@ -57,6 +57,8 @@ int YDist = 0;            // Initial Drive Stick Value.
 int XDist = 0;            // Initial Drive Stick Value.
 int leftFoot = 90;        // Initial servo signal for motor speed (0 = full reverse, 90 = stop, 180 = full forward)
 int rightFoot = 90;       // Initial servo signal for motor speed (0 = full reverse, 90 = stop, 180 = full forward)
+int CalibrationSpeed = 127;    // To set the speed to maximum for calibration of the hub drive VESCs
+bool CalibrationMode = false;  // set to TRUE when both triggers and both shoulder buttons are pressed
 #endif
 
 // SPEED AND TURN SPEEDS
@@ -68,7 +70,7 @@ const byte DRIVESPEED1 = 30;
 // These may vary based on your drive system and power system
 const byte DRIVESPEED2 = 38;
 //Set to 0 if you only want 2 speeds.
-const byte DRIVESPEED3 = 45;
+const byte DRIVESPEED3 = 50;
 
 // Default drive speed at startup
 byte drivespeed = DRIVESPEED1;
@@ -86,12 +88,12 @@ boolean isLeftStickDrive = true;
 // depending on your motor. My Pittman is really fast so I dial this down a ways from top speed.
 // Use a number up to 127 for serial
 const byte DOMESPEED = 127;
-unsigned long RampingMillis = 0;  //  Label for a timer to allow correct ramping while in the Deadzone
-int RampingDeadzoneDelay = 200;   //  milliseconds in the DriveDeadzone before switching the speed to 0.  Recommend about 200
 
 // Ramping- the lower this number the longer R2 will take to speedup or slow down,
 // change this by incriments of 1
 const byte RAMPING = 2;
+unsigned long RampingMillis = 0;  //  Label for a timer to allow correct ramping while in the Deadzone
+int RampingDeadzoneDelay = 200;   //  milliseconds in the DriveDeadzone before switching the speed to 0.  Recommend about 200
 
 // Compensation is for deadband/deadzone checking. There's a little play in the neutral zone
 // which gets a reading of a value of something other than 0 when you're not moving the stick.
@@ -730,7 +732,18 @@ void loop() {
 
   if (isDriveEnabled) {
 
-    mixHubDrive(turnThrottleraw, throttleStickValueraw, drivespeed);  // Call function to gett values for leftFoot and rightFoot
+    if ((Xbox.getButtonPress(L1, 0)) && (Xbox.getButtonPress(L2, 0)) && (Xbox.getButtonPress(R1, 0)) && (Xbox.getButtonPress(R2, 0))) {
+        CalibrationMode = true;
+      }
+    else {
+      CalibrationMode = false;
+    }
+
+    if (CalibrationMode == false) {
+      mixHubDrive(turnThrottleraw, throttleStickValueraw, drivespeed);  // Call function to get values for leftFoot and rightFoot
+    } else {
+      mixHubDrive(turnThrottleraw, throttleStickValueraw, CalibrationSpeed);  // Call function to get values for leftFoot and rightFoot using absolute max speed (127) for calibration
+    }
 
     if ((isInAutomationMode) && ((leftFoot != 90) || (rightFoot != 90))) {  // Turn off automation if using the drive motors
       isInAutomationMode = false;
