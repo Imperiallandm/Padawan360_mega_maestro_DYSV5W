@@ -732,7 +732,7 @@ void loop() {
 
   if (isDriveEnabled) {
 
-    if ((Xbox.getButtonPress(L1, 0)) && (Xbox.getButtonPress(L2, 0)) && (Xbox.getButtonPress(R1, 0)) && (Xbox.getButtonPress(R2, 0))) {
+   if ((Xbox.getButtonPress(L1, 0)) && (Xbox.getButtonPress(L2, 0)) && (Xbox.getButtonPress(R1, 0)) && (Xbox.getButtonPress(R2, 0)) && (drivespeed == DRIVESPEED3)) {
         CalibrationMode = true;
       }
     else {
