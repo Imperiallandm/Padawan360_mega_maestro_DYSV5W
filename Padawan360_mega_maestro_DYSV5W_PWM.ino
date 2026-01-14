@@ -5,7 +5,8 @@
 // on Tx3 on a Mega or software serial on Tx11
 // Please credit Dan Kraus for the original hard work on Padawan 360
 // This sketch is to beta test the DY-SV5W audio player instead of sparkfun mp3
-
+// To swap from sparkfun / DY-SV5W / DFPlayer just remove the // from infront of the one you have
+// ctr+f will open find and look for all the mp3 things you need to change
 // Hub Drive Motors with individual PWM speed controllers
 // This script allows selection between standard Sabertooth control of brushed motors for the foot drives,
 // or the use of individual motor drivers (e.g. Flipsky FSESC6.7) with hub motors.
@@ -36,6 +37,8 @@
   Sabertooth Motor Controller
   Syren Motor Controller
   Sparkfun MP3 Trigger
+  myDFPlayer
+  DY-SV5W
   This sketch supports I2C and calls events on many sound effect actions to control lights and sounds.
   It is NOT set up for Dan's method of using the serial packet to transfer data up to the dome
   to trigger some light effects.It uses Hardware Serial pins on the Mega to control Sabertooth and Syren
@@ -133,8 +136,12 @@ int turnDirection = 20;
 #define EXTINGUISHERPIN 3
 #include <SoftwareSerial.h>
 #include <Sabertooth.h>
+// pick a mp3 player
 //#include <MP3Trigger.h>
+//#include <DFRobotDFPlayerMini.h>
+//#include <SoftwareSerial.h> // for DFplayer
 #include <DYPlayerArduino.h>
+//
 #include <Wire.h>
 #include <XBOXRECV.h>
 
@@ -197,9 +204,10 @@ ButtonEnum hpLightToggleButton;
 boolean isHPOn = false;
 
 
-
-//MP3Trigger mp3Trigger;
 // Initialise the player, it defaults to using Serial.
+//MP3Trigger mp3Trigger;
+//SoftwareSerial mySoftwareSerial(10, 11); // RX, TX // for DFPlayer
+//DFRobotDFPlayerMini myDFPlayer;
 DY::Player player;
 USB Usb;
 XBOXRECV Xbox(&Usb);
@@ -245,7 +253,10 @@ void setup() {
 
   //mp3Trigger.setup();
   //mp3Trigger.setVolume(vol);
-
+  
+  //myDFPlayer.begin(mySoftwareSerial);
+  //myDFPlayer.volume(30);
+  
   player.begin();
   player.setVolume(vol);  // starting Volume
 
@@ -316,6 +327,7 @@ void loop() {
   if (!firstLoadOnConnect) {
     firstLoadOnConnect = true;
     //mp3Trigger.play(21);
+    //myDFPlayer.play(21);
     player.playSpecified(21);
     Xbox.setLedMode(ROTATING, 0);
   }
@@ -333,10 +345,12 @@ void loop() {
       Xbox.setLedMode(ROTATING, 0);
       player.playSpecified(53);
       // mp3Trigger.play(53);
+      //myDFPlayer.play(53);
       Serial.println("Start pressed");
     } else {
       isDriveEnabled = true;
       //mp3Trigger.play(52);
+      //myDFPlayer.play(52);
       player.playSpecified(52);
       Serial.println("Start pressed");
       // //When the drive is enabled, set our LED accordingly to indicate speed
@@ -356,11 +370,13 @@ void loop() {
       isInAutomationMode = false;
       automateAction = 0;
       //mp3Trigger.play(53);
+      //myDFPlayer.play(53);
       player.playSpecified(53);
       Serial.println("Back button pressed");
     } else {
       isInAutomationMode = true;
       //mp3Trigger.play(52);
+      //myDFPlayer.play(52);
       player.playSpecified(52);
       Serial.println("Back button pressed");
     }
@@ -376,6 +392,7 @@ void loop() {
 
       if (automateAction > 1) {
         // mp3Trigger.play(random(32, 52));
+        //myDFPlayer.play(random(32, 52));
         player.playSpecified(random(32, 52));
       }
       if (automateAction < 4) {
@@ -413,6 +430,7 @@ void loop() {
       if (vol > 0) {
         vol--;
         // mp3Trigger.setVolume(vol);
+        //myDFPlayer.volumeUp(); //Volume Up
         player.setVolume(vol);
       }
     }
@@ -423,6 +441,7 @@ void loop() {
       if (vol < 30) {
         vol++;
         //  mp3Trigger.setVolume(vol);
+        //myDFPlayer.volumeDown();
         player.setVolume(vol);
       }
     }
@@ -513,22 +532,25 @@ void loop() {
   if (Xbox.getButtonClick(Y, 0)) {
     if (Xbox.getButtonPress(L1, 0)) {
       //mp3Trigger.play(8);
+      //myDFPlayer.play(8);
       player.playSpecified(8);
       //logic lights, random
       triggerI2C(10, 0);
     } else if (Xbox.getButtonPress(L2, 0)) {
       //mp3Trigger.play(2);
+      //myDFPlayer.play(2);
       player.playSpecified(2);
       //logic lights, random
       triggerI2C(10, 0);
     } else if (Xbox.getButtonPress(R1, 0)) {
       //mp3Trigger.play(9);
+      //myDFPlayer.play(9);
       player.playSpecified(9);
       //logic lights, random
       triggerI2C(10, 0);
     } else {
       // mp3Trigger.play(random(13, 17));
-
+      //myDFPlayer.play(random(13, 17));
       player.playSpecified(random(13, 17));
       //logic lights, random
       triggerI2C(10, 0);
@@ -539,6 +561,7 @@ void loop() {
   if (Xbox.getButtonClick(A, 0)) {
     if (Xbox.getButtonPress(L1, 0)) {
       //mp3Trigger.play(6);
+      //myDFPlayer.play(6);
       player.playSpecified(6);
       //logic lights
       triggerI2C(10, 6);
@@ -548,6 +571,7 @@ void loop() {
       triggerI2C(27, 11);
     } else if (Xbox.getButtonPress(L2, 0)) {
       //mp3Trigger.play(1);
+      //myDFPlayer.play(1);
       player.playSpecified(1);
       //logic lights, alarm
       triggerI2C(10, 1);
@@ -557,12 +581,14 @@ void loop() {
       triggerI2C(27, 3);
     } else if (Xbox.getButtonPress(R1, 0)) {
       // mp3Trigger.play(11);
+      //myDFPlayer.play(11);
       player.playSpecified(11);
       //logic lights, alarm2Display
       triggerI2C(10, 11);
     } else {
 
       //mp3Trigger.play(random(17, 25));
+      //myDFPlayer.play(random(17, 25));
       player.playSpecified(random(17, 25));
       //logic lights, random
       triggerI2C(10, 0);
@@ -573,16 +599,19 @@ void loop() {
   if (Xbox.getButtonClick(B, 0)) {
     if (Xbox.getButtonPress(L1, 0)) {
       //mp3Trigger.play(7);
+      //myDFPlayer.play(7);
       player.playSpecified(7);
       //logic lights, random
       triggerI2C(10, 0);
     } else if (Xbox.getButtonPress(L2, 0)) {
       //mp3Trigger.play(3);
+      //myDFPlayer.play(3);
       player.playSpecified(3);
       //logic lights, random
       triggerI2C(10, 0);
     } else if (Xbox.getButtonPress(R1, 0)) {
       //mp3Trigger.play(10);
+      //myDFPlayer.play(10);
       player.playSpecified(10);
       //logic lights bargrap
       triggerI2C(10, 10);
@@ -592,6 +621,7 @@ void loop() {
       triggerI2C(27, 10);
     } else {
       //mp3Trigger.play(random(32, 52));
+      //myDFPlayer.play(random(32, 52));
       player.playSpecified(random(32, 52));
       //logic lights, random
       triggerI2C(10, 0);
@@ -603,6 +633,7 @@ void loop() {
     // leia message L1+X
     if (Xbox.getButtonPress(L1, 0)) {
       //mp3Trigger.play(5);
+      //myDFPlayer.play(5);
       player.playSpecified(5);
       //logic lights, leia message
       triggerI2C(10, 5);
@@ -610,16 +641,19 @@ void loop() {
       triggerI2C(25, 9);
     } else if (Xbox.getButtonPress(L2, 0)) {
       //mp3Trigger.play(4);
+      //myDFPlayer.play(4);
       player.playSpecified(4);
       //logic lights
       triggerI2C(10, 4);
     } else if (Xbox.getButtonPress(R1, 0)) {
       //mp3Trigger.play(12);
+      //myDFPlayer.play(12);
       player.playSpecified(12);
       //logic lights, random
       triggerI2C(10, 0);
     } else {
       //mp3Trigger.play(random(25, 32));
+      //myDFPlayer.play(random(25, 32));
       player.playSpecified(random(32, 52));
       //logic lights, random
       triggerI2C(10, 0);
@@ -655,6 +689,7 @@ void loop() {
       drivespeed = DRIVESPEED2;
       Xbox.setLedOn(LED2, 0);
       // mp3Trigger.play(53);
+      //myDFPlayer.play(53);
       player.playSpecified(53);
       triggerI2C(10, 22);
     } else if (drivespeed == DRIVESPEED2 && (DRIVESPEED3 != 0)) {
@@ -662,6 +697,7 @@ void loop() {
       drivespeed = DRIVESPEED3;
       Xbox.setLedOn(LED3, 0);
       //mp3Trigger.play(1);
+      //myDFPlayer.play(1);
       player.playSpecified(1);
       triggerI2C(10, 23);
     } else {
@@ -670,6 +706,7 @@ void loop() {
       drivespeed = DRIVESPEED1;
       Xbox.setLedOn(LED1, 0);
       //mp3Trigger.play(52);
+      //myDFPlayer.play(52);
       player.playSpecified(52);
       triggerI2C(10, 21);
     }
